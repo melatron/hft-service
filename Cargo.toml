@@ -1,0 +1,18 @@
+[package]
+name = "hft-service"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.8"
+figment = { version = "0.10", features = ["toml", "env"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Add this section for your tests and benchmarks
+[dev-dependencies]
+tower = { version = "0.5", features = ["full"] }

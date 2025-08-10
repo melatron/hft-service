@@ -1,0 +1,10 @@
+# Default configuration for the HFT Stats Service.
+# These values can be overridden by environment variables.
+# For example, `export APP_SERVER__PORT=9090`
+
+[server]
+host = "127.0.0.1"
+port = 8080
+
+[log]
+level = "info" # Can be "trace", "debug", "info", "warn", or "error"
