@@ -54,13 +54,12 @@ impl IntoResponse for AppError {
     }
 }
 
-// --- Request/Response Structs ---
-#[derive(Debug, Deserialize)] // <-- Add Debug here
+#[derive(Debug, Deserialize)]
 struct AddBatchRequest {
     symbol: String,
     values: Vec<f64>,
 }
-#[derive(Debug, Deserialize)] // <-- And here
+#[derive(Debug, Deserialize)]
 struct StatsRequest {
     symbol: String,
     k: u32,
@@ -74,7 +73,6 @@ struct StatsResponse {
     var: f64,
 }
 
-/// Creates the Axum router, making it reusable for main and tests.
 pub fn app_router(state: SharedState) -> Router {
     Router::new()
         .route("/health", get(health_check_handler))
@@ -83,22 +81,13 @@ pub fn app_router(state: SharedState) -> Router {
         .with_state(state)
 }
 
-// --- API Handlers ---
-
 #[instrument(name = "health_check")]
 async fn health_check_handler() -> impl IntoResponse {
     info!("Health check successful");
     (StatusCode::OK, Json(serde_json::json!({"status": "ok"})))
 }
 
-#[instrument(
-    name = "add_batch_request",
-    skip(state, payload),
-    fields(
-        symbol = %payload.symbol,
-        count = payload.values.len()
-    )
-)]
+#[instrument(name = "add_batch_request", skip(state, payload), fields(symbol = %payload.symbol, count = payload.values.len()))]
 async fn add_batch_handler(
     State(state): State<SharedState>,
     Json(payload): Json<AddBatchRequest>,
@@ -135,14 +124,7 @@ async fn add_batch_handler(
     ))
 }
 
-#[instrument(
-    name = "get_stats_request",
-    skip(state),
-    fields(
-        symbol = %params.symbol,
-        k = %params.k
-    )
-)]
+#[instrument(name = "get_stats_request", skip(state), fields(symbol = %params.symbol, k = %params.k))]
 async fn get_stats_handler(
     State(state): State<SharedState>,
     Query(params): Query<StatsRequest>,
@@ -164,7 +146,6 @@ async fn get_stats_handler(
         retrieved_count = stats_node.count,
         "Successfully retrieved stats"
     );
-
     Ok(Json(StatsResponse {
         min: stats_node.min,
         max: stats_node.max,

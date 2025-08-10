@@ -25,11 +25,10 @@ pub struct Config {
 impl Config {
     #[allow(dead_code)]
     pub fn new() -> Result<Self, Box<dyn Error>> {
-        // Return a boxed trait object for flexibility
         Figment::new()
             .merge(Toml::file("Config.toml"))
             .merge(Env::prefixed("APP_"))
             .extract()
-            .map_err(|e| e.into()) // Convert figment::Error into Box<dyn Error>
+            .map_err(|e| e.into())
     }
 }

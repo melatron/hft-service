@@ -1,9 +1,18 @@
-use crate::{AppError, segment_tree::{Node, SegmentTree}};
+use crate::{
+    segment_tree::{Node, SegmentTree},
+    AppError,
+};
 use std::collections::HashMap;
 
 /// The main store for all symbol data.
 pub struct Store {
     pub symbols: HashMap<String, SymbolData>,
+}
+
+impl Default for Store {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Store {

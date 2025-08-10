@@ -131,3 +131,93 @@ impl SegmentTree {
         res_left + res_right
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const EPSILON: f64 = 1e-9;
+
+    fn assert_float_eq(a: f64, b: f64) {
+        assert!(
+            (a - b).abs() < EPSILON,
+            "Assertion failed: Expected {}, got {}",
+            b,
+            a
+        );
+    }
+
+    #[test]
+    fn test_empty_query() {
+        let tree = SegmentTree::new(10);
+        let node = tree.query(0, 5);
+        assert_eq!(node.count, 0);
+        assert_eq!(node.sum, 0.0);
+        assert!(node.min.is_infinite() && node.min.is_sign_positive());
+    }
+
+    #[test]
+    fn test_single_element() {
+        let mut tree = SegmentTree::new(10);
+        tree.update(0, 150.5);
+
+        let node = tree.query(0, 0);
+        assert_eq!(node.count, 1);
+        assert_float_eq(node.min, 150.5);
+        assert_float_eq(node.max, 150.5);
+        assert_float_eq(node.sum, 150.5);
+        assert_float_eq(node.sum_of_squares, 150.5 * 150.5);
+    }
+
+    #[test]
+    fn test_multiple_elements_full_range() {
+        let mut tree = SegmentTree::new(10);
+        let values = [10.0, 20.0, 5.0, 15.0];
+        for (i, &v) in values.iter().enumerate() {
+            tree.update(i, v);
+        }
+
+        let node = tree.query(0, 3);
+        assert_eq!(node.count, 4);
+        assert_float_eq(node.min, 5.0);
+        assert_float_eq(node.max, 20.0);
+        assert_float_eq(node.sum, 50.0); // 10 + 20 + 5 + 15
+        assert_float_eq(node.sum_of_squares, 750.0); // 100 + 400 + 25 + 225
+    }
+
+    #[test]
+    fn test_multiple_elements_sub_range() {
+        let mut tree = SegmentTree::new(10);
+        let values = [10.0, 20.0, 5.0, 15.0, 25.0];
+        for (i, &v) in values.iter().enumerate() {
+            tree.update(i, v);
+        }
+
+        // Query the middle sub-range [1..=3] -> [20.0, 5.0, 15.0]
+        let node = tree.query(1, 3);
+        assert_eq!(node.count, 3);
+        assert_float_eq(node.min, 5.0);
+        assert_float_eq(node.max, 20.0);
+        assert_float_eq(node.sum, 40.0); // 20 + 5 + 15
+        assert_float_eq(node.sum_of_squares, 650.0); // 400 + 25 + 225
+    }
+
+    #[test]
+    fn test_edge_range_queries() {
+        let mut tree = SegmentTree::new(10);
+        let values = [10.0, 20.0, 5.0, 15.0, 25.0];
+        for (i, &v) in values.iter().enumerate() {
+            tree.update(i, v);
+        }
+
+        // Query starting from the beginning
+        let node_start = tree.query(0, 1); // [10.0, 20.0]
+        assert_eq!(node_start.count, 2);
+        assert_float_eq(node_start.sum, 30.0);
+
+        // Query ending at the end
+        let node_end = tree.query(3, 4); // [15.0, 25.0]
+        assert_eq!(node_end.count, 2);
+        assert_float_eq(node_end.sum, 40.0);
+    }
+}
