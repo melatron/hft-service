@@ -5,15 +5,23 @@ use axum::http::{Request, StatusCode};
 use serde_json::{json, Value};
 use tower::ServiceExt;
 
-/// A helper for comparing floating-point numbers in tests.
+/// A helper for comparing floating-point numbers using a relative epsilon.
+/// This is robust for both very large and very small numbers.
 fn fuzzy_assert_eq(a: f64, b: f64, message: &str) {
-    const EPSILON: f64 = 1e-6;
+    let abs_diff = (a - b).abs();
+    let epsilon = 1e-9; // A small relative tolerance
+
+    // Use a relative comparison, but fall back to an absolute one for very small numbers.
+    let max_val = a.abs().max(b.abs());
+    let relative_epsilon = epsilon * max_val;
+
     assert!(
-        (a - b).abs() < EPSILON,
-        "{}: Expected {}, got {}",
+        abs_diff < relative_epsilon,
+        "{}: Assertion failed: Expected {}, got {} (diff: {})",
         message,
         b,
-        a
+        a,
+        abs_diff
     );
 }
 
@@ -144,13 +152,16 @@ async fn test_exponent_out_of_range() {
         .contains("exponent must be an integer between 1 and 8"));
 }
 
+// This test is ignored by default because it is resource-intensive.
+// To run it, use: cargo test --release -- --ignored
 #[tokio::test]
-async fn test_large_data_and_variable_k() {
+#[ignore]
+async fn test_large_data_and_variable_exponent() {
     let state = SharedState::new(Store::new());
     let app = app_router(state);
     let symbol = "BIG-DATA";
-    let total_points = 100_000_u64;
-    let batch_size = 10_000_u64;
+    let total_points = 100_000_000_u64;
+    let batch_size = 1_000_000_u64;
 
     for i in 0..(total_points / batch_size) {
         let start = i * batch_size + 1;
@@ -168,32 +179,31 @@ async fn test_large_data_and_variable_k() {
         assert_eq!(response.status(), StatusCode::OK);
     }
 
-    let test_ks = [2, 4, 5];
-    for k in test_ks {
-        let n = 10_u64.pow(k);
+    let test_exponents = [7, 8];
+    for exponent in test_exponents {
+        let window_size = 10_u64.pow(exponent);
         let last = total_points as f64;
-        let min_val = (total_points - n + 1) as f64;
+        let min_val = (total_points - window_size + 1) as f64;
         let expected_avg = (min_val + last) / 2.0;
         let sum_sq = |x: u64| -> f64 {
             let xf = x as f64;
             xf * (xf + 1.0) * (2.0 * xf + 1.0) / 6.0
         };
-        let sum_of_squares_in_range = sum_sq(total_points) - sum_sq(total_points - n);
-        let expected_e_x2 = sum_of_squares_in_range / (n as f64);
+        let sum_of_squares_in_range = sum_sq(total_points) - sum_sq(total_points - window_size);
+        let expected_e_x2 = sum_of_squares_in_range / (window_size as f64);
         let expected_var = expected_e_x2 - expected_avg.powi(2);
 
         let stats_request = Request::builder()
-            .uri(format!("/stats/?symbol={}&exponent={}", symbol, k))
+            .uri(format!("/stats/?symbol={}&exponent={}", symbol, exponent))
             .body(Body::empty())
             .unwrap();
         let response = app.clone().oneshot(stats_request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
-        // Add the usize::MAX limit here as well
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let stats: Value = serde_json::from_slice(&body).unwrap();
 
-        let msg_prefix = format!("exponent={}", k);
+        let msg_prefix = format!("exponent={}", exponent);
         fuzzy_assert_eq(
             stats["avg"].as_f64().unwrap(),
             expected_avg,

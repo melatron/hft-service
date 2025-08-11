@@ -17,4 +17,12 @@ tracing-appender = "0.2"
 
 # Add this section for your tests and benchmarks
 [dev-dependencies]
+criterion = { version = "0.5.1", features = ["async_tokio"] }
+hyper = "1.4"
+tokio = { version = "1", features = ["full"] }
 tower = { version = "0.5", features = ["full"] }
+
+# Add this section to configure the benchmark
+[[bench]]
+name = "api_benchmarks"
+harness = false
