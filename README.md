@@ -24,6 +24,14 @@ The core requirement is to perform statistical analysis (`min`, `max`, `avg`, `v
 
 This service uses a non-recursive **iterative implementation** of the Segment Tree for maximum performance. This approach avoids function call overhead and the risk of stack overflow, providing a meaningful performance advantage in a latency-sensitive HFT system.
 
+### Concurrency Model: DashMap
+
+To handle high volumes of concurrent requests efficiently, the service uses a DashMap. Unlike a standard HashMap protected by a single RwLock, DashMap provides fine-grained locking on a per-symbol basis. This eliminates a global bottleneck and allows requests for different symbols to be processed in parallel, significantly increasing throughput.
+
+### Numeric Type: f64 vs. rust_decimal
+
+The service deliberately uses the native f64 type over a precision library like rust_decimal. For high-frequency trading, raw speed is the highest priority, and hardware-accelerated f64 operations are significantly faster.
+
 ### Error Handling
 
 The service uses a custom `AppError` enum combined with the **`thiserror`** crate. This pattern provides compile-time, type-safe error handling and allows for precise control over the HTTP status codes and error messages returned to the client.
@@ -120,9 +128,9 @@ Provides statistical analysis on the last `1e{k}` data points for a symbol.
   - **Endpoint**: `GET /stats/`
   - **Query Parameters**:
       - `symbol`: The financial instrument's identifier.
-      - `k`: An integer from 1 to 8.
+      - `exponent`: An integer from 1 to 8.
   - **Example (`curl`)**:
     ```sh
     # Get stats for the last 1e1 (10) data points of ABC-USD
-    curl "http://localhost:8080/stats/?symbol=ABC-USD&k=1"
+    curl "http://localhost:8080/stats/?symbol=ABC-USD&exponent=1"
     ```

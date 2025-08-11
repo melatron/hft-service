@@ -2,7 +2,6 @@ use hft_service::{app_router, config::Config, store::Store, SharedState};
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use tokio::signal;
-use tokio::sync::RwLock;
 use tracing::{error, info};
 use tracing_appender::non_blocking;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -33,7 +32,7 @@ async fn main() {
         .init();
 
     // Create shared state
-    let state = SharedState::new(RwLock::new(Store::new()));
+    let state = SharedState::new(Store::new());
 
     // Create the Axum router from the library
     let app = app_router(state);

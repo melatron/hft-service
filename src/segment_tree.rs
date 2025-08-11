@@ -52,20 +52,20 @@ impl Default for Node {
 pub struct SegmentTree {
     tree: Vec<Node>,
     /// The number of leaf nodes, which is the capacity of the original data array.
-    n: usize,
+    capacity: usize,
 }
 
 impl SegmentTree {
     pub fn new(capacity: usize) -> Self {
         SegmentTree {
             tree: vec![Node::default(); 2 * capacity],
-            n: capacity,
+            capacity,
         }
     }
 
     pub fn update(&mut self, mut i: usize, value: f64) {
         // Go to the leaf position.
-        i += self.n;
+        i += self.capacity;
         trace!(target_index = i, value, "Updating leaf node");
 
         // Update the leaf node.
@@ -92,13 +92,13 @@ impl SegmentTree {
         }
     }
 
-    pub fn query(&self, mut l: usize, mut r: usize) -> Node {
-        if l > r {
+    pub fn query(&self, mut left: usize, mut right: usize) -> Node {
+        if left > right {
             return Node::default();
         }
         trace!(
-            query_range_start = l,
-            query_range_end = r,
+            query_range_start = left,
+            query_range_end = right,
             "Executing iterative query"
         );
 
@@ -106,25 +106,25 @@ impl SegmentTree {
         let mut res_right = Node::default();
 
         // Move to the leaf positions.
-        l += self.n;
-        r += self.n;
+        left += self.capacity;
+        right += self.capacity;
 
-        while l <= r {
-            // If l is a right child, include its value and move to the right.
-            if l % 2 == 1 {
-                trace!(index = l, "Including right child in left result");
-                res_left = res_left + self.tree[l];
-                l += 1;
+        while left <= right {
+            // If left is a right child, include its value and move to the right.
+            if left % 2 == 1 {
+                trace!(index = left, "Including right child in left result");
+                res_left = res_left + self.tree[left];
+                left += 1;
             }
             // If r is a left child, include its value and move to the left.
-            if r % 2 == 0 {
-                trace!(index = r, "Including left child in right result");
-                res_right = self.tree[r] + res_right;
-                r -= 1;
+            if right % 2 == 0 {
+                trace!(index = right, "Including left child in right result");
+                res_right = self.tree[right] + res_right;
+                right -= 1;
             }
             // Move up to the parents.
-            l /= 2;
-            r /= 2;
+            left /= 2;
+            right /= 2;
         }
 
         trace!("Merging left and right results for final query response");

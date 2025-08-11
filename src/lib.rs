@@ -8,7 +8,6 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
-use tokio::sync::RwLock;
 use tracing::{error, info, instrument, warn};
 
 // Declare modules, making them public
@@ -19,7 +18,7 @@ pub mod store;
 use store::{Store, SymbolData};
 
 // The central, shared application state.
-pub type SharedState = Arc<RwLock<Store>>;
+pub type SharedState = Arc<Store>;
 
 #[derive(Debug, Error)]
 pub enum AppError {
@@ -62,7 +61,7 @@ struct AddBatchRequest {
 #[derive(Debug, Deserialize)]
 struct StatsRequest {
     symbol: String,
-    k: u32,
+    exponent: u32,
 }
 #[derive(Serialize)]
 struct StatsResponse {
@@ -102,9 +101,7 @@ async fn add_batch_handler(
             "Negative trading prices are not allowed".to_string(),
         ));
     }
-
-    let mut store = state.write().await;
-    let data = store
+    let mut symbol_data = state
         .symbols
         .entry(payload.symbol.clone())
         .or_insert_with(|| SymbolData {
@@ -113,8 +110,9 @@ async fn add_batch_handler(
         });
 
     for value in &payload.values {
-        data.values.push(*value);
-        data.tree.update(data.values.len() - 1, *value);
+        symbol_data.values.push(*value);
+        let new_index = symbol_data.values.len() - 1;
+        symbol_data.tree.update(new_index, *value);
     }
 
     info!("Successfully added batch");
@@ -124,20 +122,19 @@ async fn add_batch_handler(
     ))
 }
 
-#[instrument(name = "get_stats_request", skip(state), fields(symbol = %params.symbol, k = %params.k))]
+#[instrument(name = "get_stats_request", skip(state), fields(symbol = %params.symbol, exponent = %params.exponent))]
 async fn get_stats_handler(
     State(state): State<SharedState>,
     Query(params): Query<StatsRequest>,
 ) -> Result<Json<StatsResponse>, AppError> {
-    if !(1..=8).contains(&params.k) {
+    if !(1..=8).contains(&params.exponent) {
         return Err(AppError::BadRequest(
             "k must be an integer between 1 and 8".to_string(),
         ));
     }
 
-    let store = state.read().await;
-    let n = 10_u64.pow(params.k) as usize;
-    let (stats_node, last_value) = store.get_stats(&params.symbol, n)?;
+    let window_size = 10_u64.pow(params.exponent) as usize;
+    let (stats_node, last_value) = state.get_stats(&params.symbol, window_size)?;
 
     let avg = stats_node.sum / stats_node.count as f64;
     let variance = (stats_node.sum_of_squares / stats_node.count as f64) - avg.powi(2);

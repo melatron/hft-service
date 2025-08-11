@@ -3,7 +3,6 @@ use hft_service::{app_router, store::Store, SharedState};
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use serde_json::{json, Value};
-use tokio::sync::RwLock;
 use tower::ServiceExt;
 
 /// A helper for comparing floating-point numbers in tests.
@@ -20,7 +19,7 @@ fn fuzzy_assert_eq(a: f64, b: f64, message: &str) {
 
 #[tokio::test]
 async fn test_health_check() {
-    let state = SharedState::new(RwLock::new(Store::new()));
+    let state = SharedState::new(Store::new());
     let app = app_router(state);
 
     let request = Request::builder()
@@ -38,7 +37,7 @@ async fn test_health_check() {
 
 #[tokio::test]
 async fn test_reject_batch_with_negative_prices() {
-    let state = SharedState::new(RwLock::new(Store::new()));
+    let state = SharedState::new(Store::new());
     let app = app_router(state);
     let request_body = json!({ "symbol": "BTC-USD", "values": [68000.0, -50.0] });
 
@@ -63,8 +62,51 @@ async fn test_reject_batch_with_negative_prices() {
 }
 
 #[tokio::test]
+async fn test_data_availability_errors() {
+    // Corrected state creation
+    let state = SharedState::new(Store::new());
+    let app = app_router(state);
+    let symbol = "EDGECASE-XYZ";
+
+    // Scenario 1: Symbol does not exist
+    let stats_request_nonexistent = Request::builder()
+        .uri(format!("/stats/?symbol={}&exponent=1", symbol))
+        .body(Body::empty())
+        .unwrap();
+    let response_nonexistent = app
+        .clone()
+        .oneshot(stats_request_nonexistent)
+        .await
+        .unwrap();
+    assert_eq!(response_nonexistent.status(), StatusCode::NOT_FOUND);
+
+    // Scenario 2: Symbol exists, but has insufficient data
+    let add_request = Request::builder()
+        .uri("/add_batch/")
+        .method("POST")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_string(&json!({
+                "symbol": symbol,
+                "values": [1.0, 2.0, 3.0, 4.0, 5.0]
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let add_response = app.clone().oneshot(add_request).await.unwrap();
+    assert_eq!(add_response.status(), StatusCode::OK);
+
+    let stats_request_insufficient = Request::builder()
+        .uri(format!("/stats/?symbol={}&exponent=2", symbol)) // Request 100 points
+        .body(Body::empty())
+        .unwrap();
+    let response_insufficient = app.oneshot(stats_request_insufficient).await.unwrap();
+    assert_eq!(response_insufficient.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn test_large_data_and_variable_k() {
-    let state = SharedState::new(RwLock::new(Store::new()));
+    let state = SharedState::new(Store::new());
     let app = app_router(state);
     let symbol = "BIG-DATA";
     let total_points = 100_000_u64;
@@ -101,7 +143,7 @@ async fn test_large_data_and_variable_k() {
         let expected_var = expected_e_x2 - expected_avg.powi(2);
 
         let stats_request = Request::builder()
-            .uri(format!("/stats/?symbol={}&k={}", symbol, k))
+            .uri(format!("/stats/?symbol={}&exponent={}", symbol, k))
             .body(Body::empty())
             .unwrap();
         let response = app.clone().oneshot(stats_request).await.unwrap();
@@ -111,7 +153,7 @@ async fn test_large_data_and_variable_k() {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let stats: Value = serde_json::from_slice(&body).unwrap();
 
-        let msg_prefix = format!("k={}", k);
+        let msg_prefix = format!("exponent={}", k);
         fuzzy_assert_eq(
             stats["avg"].as_f64().unwrap(),
             expected_avg,

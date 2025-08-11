@@ -2,11 +2,11 @@ use crate::{
     segment_tree::{Node, SegmentTree},
     AppError,
 };
-use std::collections::HashMap;
+use dashmap::DashMap;
 
 /// The main store for all symbol data.
 pub struct Store {
-    pub symbols: HashMap<String, SymbolData>,
+    pub symbols: DashMap<String, SymbolData>,
 }
 
 impl Default for Store {
@@ -18,12 +18,12 @@ impl Default for Store {
 impl Store {
     pub fn new() -> Self {
         Self {
-            symbols: HashMap::new(),
+            symbols: DashMap::new(),
         }
     }
 
     /// This function returns our specific AppError type.
-    pub fn get_stats(&self, symbol: &str, n: usize) -> Result<(Node, f64), AppError> {
+    pub fn get_stats(&self, symbol: &str, window_size: usize) -> Result<(Node, f64), AppError> {
         let data = self
             .symbols
             .get(symbol)
@@ -34,7 +34,12 @@ impl Store {
             return Err(AppError::NotEnoughData);
         }
 
-        let start_index = total_points.saturating_sub(n);
+        // If we don't have enough points for the requested window, return an error.
+        if total_points < window_size {
+            return Err(AppError::NotEnoughData);
+        }
+
+        let start_index = total_points.saturating_sub(window_size);
         let stats_node = data.tree.query(start_index, total_points - 1);
 
         if stats_node.count == 0 {
