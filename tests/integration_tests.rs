@@ -71,7 +71,6 @@ async fn test_reject_batch_with_negative_prices() {
 
 #[tokio::test]
 async fn test_data_availability_errors() {
-    // Corrected state creation
     let state = SharedState::new(Store::new());
     let app = app_router(state);
     let symbol = "EDGECASE-XYZ";
@@ -88,7 +87,8 @@ async fn test_data_availability_errors() {
         .unwrap();
     assert_eq!(response_nonexistent.status(), StatusCode::NOT_FOUND);
 
-    // Scenario 2: Symbol exists, but has insufficient data
+    // Scenario 2: Symbol exists, but the requested window is larger than the available data.
+    let values_to_add = vec![10.0, 20.0, 5.0, 15.0, 25.0];
     let add_request = Request::builder()
         .uri("/add_batch/")
         .method("POST")
@@ -96,7 +96,7 @@ async fn test_data_availability_errors() {
         .body(Body::from(
             serde_json::to_string(&json!({
                 "symbol": symbol,
-                "values": [1.0, 2.0, 3.0, 4.0, 5.0]
+                "values": values_to_add
             }))
             .unwrap(),
         ))
@@ -104,12 +104,25 @@ async fn test_data_availability_errors() {
     let add_response = app.clone().oneshot(add_request).await.unwrap();
     assert_eq!(add_response.status(), StatusCode::OK);
 
-    let stats_request_insufficient = Request::builder()
-        .uri(format!("/stats/?symbol={}&exponent=2", symbol)) // Request 100 points
+    // Request 100 points (exponent=2), but only 5 are available.
+    let stats_request_larger_window = Request::builder()
+        .uri(format!("/stats/?symbol={}&exponent=2", symbol))
         .body(Body::empty())
         .unwrap();
-    let response_insufficient = app.oneshot(stats_request_insufficient).await.unwrap();
-    assert_eq!(response_insufficient.status(), StatusCode::BAD_REQUEST);
+    let response_larger_window = app.oneshot(stats_request_larger_window).await.unwrap();
+
+    assert_eq!(response_larger_window.status(), StatusCode::OK);
+
+    let body = to_bytes(response_larger_window.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let stats: Value = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(stats["min"].as_f64().unwrap(), 5.0);
+    assert_eq!(stats["max"].as_f64().unwrap(), 25.0);
+    assert_eq!(stats["last"].as_f64().unwrap(), 25.0);
+    fuzzy_assert_eq(stats["avg"].as_f64().unwrap(), 15.0, "avg mismatch");
+    fuzzy_assert_eq(stats["var"].as_f64().unwrap(), 50.0, "var mismatch");
 }
 
 #[tokio::test]
