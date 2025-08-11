@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use hft_service::{app_router, store::Store, SharedState};
 use tokio::runtime::Runtime;
 
@@ -8,6 +8,53 @@ use axum::{
 };
 use serde_json::json;
 use tower::ServiceExt;
+
+// demonstrating O(log N) complexity
+fn bench_get_stats_complexity(c: &mut Criterion) {
+    let rt = Runtime::new().unwrap();
+    let mut group = c.benchmark_group("GET /stats complexity");
+
+    // Test across different data sizes (N)
+    for n_points in [1_000, 10_000, 100_000, 1_000_000].iter() {
+        group.throughput(Throughput::Elements(*n_points as u64));
+
+        // For each N, create a fresh app and pre-load it with data
+        let state = SharedState::new(Store::new());
+        let app = app_router(state.clone());
+        rt.block_on(async {
+            let values: Vec<f64> = (0..*n_points).map(|i| 150.0 + (i % 10) as f64).collect();
+            let request = Request::builder()
+                .uri("/add_batch/")
+                .method("POST")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({ "symbol": "COMPLEXITY", "values": values }))
+                        .unwrap(),
+                ))
+                .unwrap();
+            let response = app.clone().oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        });
+
+        // Benchmark the query time for this N
+        group.bench_with_input(
+            criterion::BenchmarkId::from_parameter(n_points),
+            n_points,
+            |b, _| {
+                b.to_async(&rt).iter(|| async {
+                    let request = Request::builder()
+                        .uri("/stats/?symbol=COMPLEXITY&exponent=2") // Always query for last 100
+                        .body(Body::empty())
+                        .unwrap();
+
+                    let response = black_box(app.clone().oneshot(request).await.unwrap());
+                    assert_eq!(response.status(), StatusCode::OK);
+                });
+            },
+        );
+    }
+    group.finish();
+}
 
 fn bench_add_batch(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
@@ -74,5 +121,10 @@ fn bench_get_stats(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_add_batch, bench_get_stats);
+criterion_group!(
+    benches,
+    bench_add_batch,
+    bench_get_stats,
+    bench_get_stats_complexity
+);
 criterion_main!(benches);
