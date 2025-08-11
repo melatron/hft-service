@@ -101,18 +101,21 @@ async fn add_batch_handler(
             "Negative trading prices are not allowed".to_string(),
         ));
     }
-    let mut symbol_data = state
+    let mut symbol_data_guard = state
         .symbols
         .entry(payload.symbol.clone())
         .or_insert_with(|| SymbolData {
             values: Vec::new(),
-            tree: segment_tree::SegmentTree::new(1_000_000),
+            tree: segment_tree::SegmentTree::new(10_000),
         });
 
+    let SymbolData { values, tree } = &mut *symbol_data_guard;
+
     for value in &payload.values {
-        symbol_data.values.push(*value);
-        let new_index = symbol_data.values.len() - 1;
-        symbol_data.tree.update(new_index, *value);
+        values.push(*value);
+
+        let new_index = values.len() - 1;
+        tree.update(new_index, *value, values);
     }
 
     info!("Successfully added batch");
@@ -129,7 +132,7 @@ async fn get_stats_handler(
 ) -> Result<Json<StatsResponse>, AppError> {
     if !(1..=8).contains(&params.exponent) {
         return Err(AppError::BadRequest(
-            "k must be an integer between 1 and 8".to_string(),
+            "exponent must be an integer between 1 and 8".to_string(),
         ));
     }
 

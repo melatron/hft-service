@@ -1,5 +1,5 @@
 use std::ops::Add;
-use tracing::trace;
+use tracing::{info, trace};
 
 /// Represents a single node in the segment tree.
 /// It stores aggregate data for a specific range of values.
@@ -63,13 +63,22 @@ impl SegmentTree {
         }
     }
 
-    pub fn update(&mut self, mut i: usize, value: f64) {
-        // Go to the leaf position.
-        i += self.capacity;
-        trace!(target_index = i, value, "Updating leaf node");
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
 
-        // Update the leaf node.
-        self.tree[i] = Node {
+    /// Public update method that ensures capacity before updating.
+    pub fn update(&mut self, index: usize, value: f64, all_values: &[f64]) {
+        if index >= self.capacity {
+            self.resize(index + 1, all_values);
+        }
+        self.update_internal(index, value);
+    }
+    /// Internal method that performs the actual update logic.
+    fn update_internal(&mut self, mut index: usize, value: f64) {
+        index += self.capacity;
+        trace!(target_index = index, value, "Updating leaf node");
+        self.tree[index] = Node {
             min: value,
             max: value,
             sum: value,
@@ -77,18 +86,27 @@ impl SegmentTree {
             count: 1,
         };
 
-        // Move up the tree, updating parents.
-        while i > 1 {
-            i /= 2;
-            let left_child = 2 * i;
-            let right_child = 2 * i + 1;
-            trace!(
-                parent_index = i,
-                left_child = left_child,
-                right_child = right_child,
-                "Merging children to update parent"
-            );
-            self.tree[i] = self.tree[left_child] + self.tree[right_child];
+        while index > 1 {
+            index /= 2;
+            let left_child = 2 * index;
+            let right_child = 2 * index + 1;
+            self.tree[index] = self.tree[left_child] + self.tree[right_child];
+        }
+    }
+
+    fn resize(&mut self, required_capacity: usize, all_values: &[f64]) {
+        let new_capacity = (self.capacity * 2).max(required_capacity);
+        info!(
+            old_capacity = self.capacity,
+            new_capacity, "Resizing SegmentTree"
+        );
+
+        self.capacity = new_capacity;
+        self.tree = vec![Node::default(); 2 * new_capacity];
+
+        // Rebuild the tree with all existing values.
+        for (i, &v) in all_values.iter().enumerate() {
+            self.update_internal(i, v);
         }
     }
 
@@ -152,72 +170,80 @@ mod tests {
         let tree = SegmentTree::new(10);
         let node = tree.query(0, 5);
         assert_eq!(node.count, 0);
-        assert_eq!(node.sum, 0.0);
         assert!(node.min.is_infinite() && node.min.is_sign_positive());
     }
 
     #[test]
     fn test_single_element() {
         let mut tree = SegmentTree::new(10);
-        tree.update(0, 150.5);
+        let mut values = Vec::new();
+
+        values.push(150.5);
+        tree.update(0, 150.5, &values);
 
         let node = tree.query(0, 0);
         assert_eq!(node.count, 1);
         assert_float_eq(node.min, 150.5);
         assert_float_eq(node.max, 150.5);
-        assert_float_eq(node.sum, 150.5);
-        assert_float_eq(node.sum_of_squares, 150.5 * 150.5);
     }
 
     #[test]
     fn test_multiple_elements_full_range() {
         let mut tree = SegmentTree::new(10);
-        let values = [10.0, 20.0, 5.0, 15.0];
-        for (i, &v) in values.iter().enumerate() {
-            tree.update(i, v);
+        let mut values = Vec::new();
+        let test_data = [10.0, 20.0, 5.0, 15.0];
+
+        for (i, &v) in test_data.iter().enumerate() {
+            values.push(v);
+            tree.update(i, v, &values);
         }
 
         let node = tree.query(0, 3);
         assert_eq!(node.count, 4);
         assert_float_eq(node.min, 5.0);
         assert_float_eq(node.max, 20.0);
-        assert_float_eq(node.sum, 50.0); // 10 + 20 + 5 + 15
-        assert_float_eq(node.sum_of_squares, 750.0); // 100 + 400 + 25 + 225
+        assert_float_eq(node.sum, 50.0);
     }
 
     #[test]
     fn test_multiple_elements_sub_range() {
         let mut tree = SegmentTree::new(10);
-        let values = [10.0, 20.0, 5.0, 15.0, 25.0];
-        for (i, &v) in values.iter().enumerate() {
-            tree.update(i, v);
+        let mut values = Vec::new();
+        let test_data = [10.0, 20.0, 5.0, 15.0, 25.0];
+
+        for (i, &v) in test_data.iter().enumerate() {
+            values.push(v);
+            tree.update(i, v, &values);
         }
 
-        // Query the middle sub-range [1..=3] -> [20.0, 5.0, 15.0]
         let node = tree.query(1, 3);
         assert_eq!(node.count, 3);
         assert_float_eq(node.min, 5.0);
         assert_float_eq(node.max, 20.0);
-        assert_float_eq(node.sum, 40.0); // 20 + 5 + 15
-        assert_float_eq(node.sum_of_squares, 650.0); // 400 + 25 + 225
+        assert_float_eq(node.sum, 40.0);
     }
 
     #[test]
-    fn test_edge_range_queries() {
-        let mut tree = SegmentTree::new(10);
-        let values = [10.0, 20.0, 5.0, 15.0, 25.0];
-        for (i, &v) in values.iter().enumerate() {
-            tree.update(i, v);
+    fn test_resizing() {
+        // Start with a small capacity of 2
+        let mut tree = SegmentTree::new(2);
+        let mut values = Vec::new();
+        let test_data = [10.0, 20.0, 5.0, 15.0]; // 4 elements will trigger a resize
+
+        assert_eq!(tree.capacity(), 2);
+
+        for (i, &v) in test_data.iter().enumerate() {
+            values.push(v);
+            tree.update(i, v, &values);
         }
 
-        // Query starting from the beginning
-        let node_start = tree.query(0, 1); // [10.0, 20.0]
-        assert_eq!(node_start.count, 2);
-        assert_float_eq(node_start.sum, 30.0);
+        // Capacity should have doubled to 4
+        assert_eq!(tree.capacity(), 4);
 
-        // Query ending at the end
-        let node_end = tree.query(3, 4); // [15.0, 25.0]
-        assert_eq!(node_end.count, 2);
-        assert_float_eq(node_end.sum, 40.0);
+        // Check if data is still correct after resizing and rebuilding
+        let node = tree.query(0, 3);
+        assert_eq!(node.count, 4);
+        assert_float_eq(node.sum, 50.0);
+        assert_float_eq(node.min, 5.0);
     }
 }

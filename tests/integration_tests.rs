@@ -105,6 +105,46 @@ async fn test_data_availability_errors() {
 }
 
 #[tokio::test]
+async fn test_exponent_out_of_range() {
+    let state = SharedState::new(Store::new());
+    let app = app_router(state);
+    let symbol = "TEST-SYMBOL";
+
+    let add_request = Request::builder()
+        .uri("/add_batch/")
+        .method("POST")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_string(&json!({
+                "symbol": symbol,
+                "values": [100.0]
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+
+    let add_response = app.clone().oneshot(add_request).await.unwrap();
+    assert_eq!(add_response.status(), StatusCode::OK);
+
+    let stats_request = Request::builder()
+        .uri(format!("/stats/?symbol={}&exponent=9", symbol))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(stats_request).await.unwrap();
+
+    // Assert: We should get a 400 Bad Request for the invalid exponent
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body: Value = serde_json::from_slice(&body).unwrap();
+    assert!(body["error"]
+        .as_str()
+        .unwrap()
+        .contains("exponent must be an integer between 1 and 8"));
+}
+
+#[tokio::test]
 async fn test_large_data_and_variable_k() {
     let state = SharedState::new(Store::new());
     let app = app_router(state);
