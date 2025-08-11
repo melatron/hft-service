@@ -20,6 +20,9 @@ use store::{Store, SymbolData};
 // The central, shared application state.
 pub type SharedState = Arc<Store>;
 
+/// The maximum number of data points a symbol can hold, corresponding to 10^8.
+const MAX_CAPACITY: usize = 100_000_000;
+
 #[derive(Debug, Error)]
 pub enum AppError {
     #[error("Symbol not found: {0}")]
@@ -103,21 +106,33 @@ async fn add_batch_handler(
             "Negative trading prices are not allowed".to_string(),
         ));
     }
+
+    // Get or create the data store for the symbol.
+    // The `or_insert_with` closure is only run once for a new symbol.
     let mut symbol_data_guard = state
         .symbols
         .entry(payload.symbol.clone())
         .or_insert_with(|| SymbolData {
             values: Vec::new(),
-            tree: segment_tree::SegmentTree::new(10_000),
+            tree: segment_tree::SegmentTree::new(MAX_CAPACITY),
         });
 
     let SymbolData { values, tree } = &mut *symbol_data_guard;
 
     for value in &payload.values {
-        values.push(*value);
+        // Check if adding this value would exceed the total capacity.
+        if values.len() >= MAX_CAPACITY {
+            warn!(
+                symbol = %payload.symbol,
+                "Maximum capacity reached. Ignoring new data points."
+            );
+            break; // Stop processing the rest of the batch.
+        }
 
+        values.push(*value);
         let new_index = values.len() - 1;
-        tree.update(new_index, *value, values);
+
+        tree.update(new_index, *value);
     }
 
     info!("Successfully added batch");
@@ -142,7 +157,8 @@ async fn get_stats_handler(
     let (stats_node, last_value) = state.get_stats(&params.symbol, window_size)?;
 
     let avg = stats_node.sum / stats_node.count as f64;
-    let variance = (stats_node.sum_of_squares / stats_node.count as f64) - avg.powi(2);
+    // Ensure variance is not negative due to floating point inaccuracies.
+    let variance = ((stats_node.sum_of_squares / stats_node.count as f64) - avg.powi(2)).max(0.0);
 
     info!(
         retrieved_count = stats_node.count,

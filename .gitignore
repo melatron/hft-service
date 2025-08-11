@@ -9,3 +9,5 @@
 
 # IDE and editor specific files
 .vscode/
+
+.DS_Store
