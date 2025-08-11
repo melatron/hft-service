@@ -118,7 +118,7 @@ Adds a batch of consecutive (and non-negative) trading prices for a specific sym
     ```sh
     curl -X POST http://localhost:8080/add_batch/ \
     -H "Content-Type: application/json" \
-    -d '{"symbol": "ABC-USD", "values": [150.5, 151.0, 150.8, 151.2]}'
+    -d '{"symbol": "ABC-USD", "values": [150.1, 150.5, 151.0, 149.8, 150.2, 151.1, 151.2, 152.0, 151.5, 151.9]}'
     ```
 
 ### 3\. Get Statistics
