@@ -43,6 +43,7 @@ fn bench_get_stats(c: &mut Criterion) {
     let state = SharedState::new(Store::new());
     let app = app_router(state.clone());
 
+    // Setup block to pre-load data
     rt.block_on(async {
         let mut data_guard = state
             .symbols
@@ -57,7 +58,7 @@ fn bench_get_stats(c: &mut Criterion) {
         for i in 0..1_000_000 {
             let value = 150.0 + (i % 10) as f64;
             values.push(value);
-            tree.update(i, value);
+            tree.update(i, value, values);
         }
     });
 
@@ -138,7 +139,7 @@ fn bench_get_stats_window_size(c: &mut Criterion) {
     let app = app_router(state.clone());
 
     rt.block_on(async {
-        let batch_size = 100_000u64;
+        let batch_size = 10_000u64;
         let num_batches = (total_points as f64 / batch_size as f64).ceil() as u64;
 
         for i in 0..num_batches {
@@ -183,7 +184,6 @@ fn bench_get_stats_window_size(c: &mut Criterion) {
     group.finish();
 }
 
-// Register all the benchmarks with Criterion
 criterion_group!(
     benches,
     bench_add_batch,

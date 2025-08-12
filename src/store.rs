@@ -1,8 +1,12 @@
 use crate::{segment_tree::SegmentTree, AppError};
 use dashmap::DashMap;
 
-// The maximum number of data points a symbol can hold, corresponding to 10^8.
-const MAX_CAPACITY: usize = 100_000_000;
+/// The initial capacity for the segment tree.
+const STARTING_CAPACITY: usize = 1_000_000;
+// The maximum number of unique symbols we can track.
+const MAX_SYMBOLS: usize = 10;
+// The maximum size of a batch we can accept in a single request.
+const MAX_BATCH_SIZE: usize = 10000;
 
 /// The main store for all symbol data.
 pub struct Store {
@@ -40,10 +44,26 @@ impl Store {
                 "Cannot add an empty batch of values".to_string(),
             ));
         }
+
+        if batch_values.len() > MAX_BATCH_SIZE {
+            return Err(AppError::BadRequest(format!(
+                "Batch size cannot exceed {} values.",
+                MAX_BATCH_SIZE
+            )));
+        }
+
         if batch_values.iter().any(|&v| v < 0.0) {
             return Err(AppError::BadRequest(
                 "Negative trading prices are not allowed".to_string(),
             ));
+        }
+
+        // If the symbol doesn't exist yet and we are at capacity, reject the request.
+        if !self.symbols.contains_key(symbol) && self.symbols.len() >= MAX_SYMBOLS {
+            return Err(AppError::BadRequest(format!(
+                "Maximum number of unique symbols ({}) reached.",
+                MAX_SYMBOLS
+            )));
         }
 
         let mut symbol_data_guard =
@@ -51,21 +71,15 @@ impl Store {
                 .entry(symbol.to_string())
                 .or_insert_with(|| SymbolData {
                     values: Vec::new(),
-                    tree: SegmentTree::new(MAX_CAPACITY),
+                    tree: SegmentTree::new(STARTING_CAPACITY),
                 });
 
         let SymbolData { values, tree } = &mut *symbol_data_guard;
 
         for value in batch_values {
-            if values.len() >= MAX_CAPACITY {
-                // Silently ignore if capacity is reached, or log a warning.
-                // For this implementation, we stop processing.
-                break;
-            }
-
             values.push(*value);
             let new_index = values.len() - 1;
-            tree.update(new_index, *value);
+            tree.update(new_index, *value, values);
         }
 
         Ok(())

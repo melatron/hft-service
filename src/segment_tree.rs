@@ -1,5 +1,5 @@
 use std::ops::Add;
-use tracing::trace;
+use tracing::{info, trace};
 
 /// Represents a single node in the segment tree.
 /// It stores aggregate data for a specific range of values.
@@ -51,16 +51,12 @@ impl Default for Node {
 
 pub struct SegmentTree {
     tree: Vec<Node>,
-    /// The number of leaf nodes, which is the capacity of the original data array.
     capacity: usize,
 }
 
 impl SegmentTree {
-    /// Creates a new SegmentTree pre-allocated to the given capacity.
     pub fn new(capacity: usize) -> Self {
         SegmentTree {
-            // Allocate 2 * capacity, which is sufficient for a binary tree
-            // structure representing `capacity` leaf nodes.
             tree: vec![Node::default(); 2 * capacity],
             capacity,
         }
@@ -70,15 +66,18 @@ impl SegmentTree {
         self.capacity
     }
 
-    /// Public update method. Assumes the tree has been pre-allocated sufficiently.
-    pub fn update(&mut self, index: usize, value: f64) {
-        // In debug builds, this will panic if the index is out of bounds.
-        // In release builds, this check is compiled out for performance.
-        debug_assert!(index < self.capacity, "Update index out of bounds!");
+    /// Public update method that checks capacity and triggers a resize if needed.
+    pub fn update(&mut self, index: usize, value: f64, all_values: &[f64]) {
+        if index >= self.capacity {
+            self.resize(index + 1, all_values);
+        }
+        self.update_internal(index, value);
+    }
 
-        let mut pos = index + self.capacity;
-        trace!(target_index = pos, value, "Updating leaf node");
-        self.tree[pos] = Node {
+    /// Internal method for the actual update logic.
+    fn update_internal(&mut self, mut index: usize, value: f64) {
+        index += self.capacity;
+        self.tree[index] = Node {
             min: value,
             max: value,
             sum: value,
@@ -86,12 +85,29 @@ impl SegmentTree {
             count: 1,
         };
 
-        // Bubble up and update parent nodes.
-        while pos > 1 {
-            pos /= 2;
-            let left_child = 2 * pos;
-            let right_child = 2 * pos + 1;
-            self.tree[pos] = self.tree[left_child] + self.tree[right_child];
+        while index > 1 {
+            index /= 2;
+            let left_child = 2 * index;
+            let right_child = 2 * index + 1;
+            self.tree[index] = self.tree[left_child] + self.tree[right_child];
+        }
+    }
+
+    /// Resizes the tree by creating a new, larger tree and rebuilding it.
+    /// This is an O(N * log N) operation.
+    fn resize(&mut self, required_capacity: usize, all_values: &[f64]) {
+        let new_capacity = (self.capacity * 2).max(required_capacity);
+        info!(
+            old_capacity = self.capacity,
+            new_capacity, "Resizing SegmentTree"
+        );
+
+        self.capacity = new_capacity;
+        self.tree = vec![Node::default(); 2 * new_capacity];
+
+        // Rebuild the tree with all existing values.
+        for (i, &v) in all_values.iter().enumerate() {
+            self.update_internal(i, v);
         }
     }
 
@@ -162,7 +178,10 @@ mod tests {
     #[test]
     fn test_single_element() {
         let mut tree = SegmentTree::new(10);
-        tree.update(0, 150.5);
+        let mut values = Vec::new();
+
+        values.push(150.5);
+        tree.update(0, 150.5, &values);
 
         let node = tree.query(0, 0);
         assert_eq!(node.count, 1);
@@ -173,10 +192,12 @@ mod tests {
     #[test]
     fn test_multiple_elements_full_range() {
         let mut tree = SegmentTree::new(10);
+        let mut values = Vec::new();
         let test_data = [10.0, 20.0, 5.0, 15.0];
 
         for (i, &v) in test_data.iter().enumerate() {
-            tree.update(i, v);
+            values.push(v);
+            tree.update(i, v, &values);
         }
 
         let node = tree.query(0, 3);
@@ -189,10 +210,12 @@ mod tests {
     #[test]
     fn test_multiple_elements_sub_range() {
         let mut tree = SegmentTree::new(10);
+        let mut values = Vec::new();
         let test_data = [10.0, 20.0, 5.0, 15.0, 25.0];
 
         for (i, &v) in test_data.iter().enumerate() {
-            tree.update(i, v);
+            values.push(v);
+            tree.update(i, v, &values);
         }
 
         let node = tree.query(1, 3);
@@ -200,5 +223,29 @@ mod tests {
         assert_float_eq(node.min, 5.0);
         assert_float_eq(node.max, 20.0);
         assert_float_eq(node.sum, 40.0);
+    }
+
+    #[test]
+    fn test_resizing() {
+        // Start with a small capacity of 2
+        let mut tree = SegmentTree::new(2);
+        let mut values = Vec::new();
+        // This data will trigger a resize
+        let test_data = [10.0, 20.0, 5.0, 15.0];
+
+        for (i, &v) in test_data.iter().enumerate() {
+            values.push(v);
+            tree.update(i, v, &values);
+        }
+
+        // After adding 4 elements, the capacity should have grown (e.g., to 4).
+        assert!(tree.capacity >= 4);
+
+        // Check if data is still correct after resizing and rebuilding.
+        let node = tree.query(0, 3);
+        assert_eq!(node.count, 4);
+        assert_float_eq(node.sum, 50.0);
+        assert_float_eq(node.min, 5.0);
+        assert_float_eq(node.max, 20.0);
     }
 }

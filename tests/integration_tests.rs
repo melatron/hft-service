@@ -75,7 +75,7 @@ async fn test_data_availability_errors() {
     let app = app_router(state);
     let symbol = "EDGECASE-XYZ";
 
-    // Scenario 1: Symbol does not exist
+    // Scenario 1: Symbol does not exist (unchanged)
     let stats_request_nonexistent = Request::builder()
         .uri(format!("/stats/?symbol={}&exponent=1", symbol))
         .body(Body::empty())
@@ -87,18 +87,14 @@ async fn test_data_availability_errors() {
         .unwrap();
     assert_eq!(response_nonexistent.status(), StatusCode::NOT_FOUND);
 
-    // Scenario 2: Symbol exists, but the requested window is larger than the available data.
-    let values_to_add = vec![10.0, 20.0, 5.0, 15.0, 25.0];
+    // Scenario 2: Symbol exists, but requested window is larger than available data.
+    let values_to_add = vec![10.0, 20.0, 5.0, 15.0, 25.0]; // 5 points
     let add_request = Request::builder()
         .uri("/add_batch/")
         .method("POST")
         .header("content-type", "application/json")
         .body(Body::from(
-            serde_json::to_string(&json!({
-                "symbol": symbol,
-                "values": values_to_add
-            }))
-            .unwrap(),
+            serde_json::to_string(&json!({ "symbol": symbol, "values": values_to_add })).unwrap(),
         ))
         .unwrap();
     let add_response = app.clone().oneshot(add_request).await.unwrap();
@@ -165,6 +161,91 @@ async fn test_exponent_out_of_range() {
         .contains("exponent must be an integer between 1 and 8"));
 }
 
+#[tokio::test]
+async fn test_rejects_oversized_batch() {
+    let state = SharedState::new(Store::new());
+    let app = app_router(state);
+
+    // Create a batch with 10,001 elements, which is one over the limit.
+    let oversized_values: Vec<f64> = vec![1.0; 10_001];
+
+    let request_body = json!({ "symbol": "OVERSIZED", "values": oversized_values });
+
+    let request = Request::builder()
+        .uri("/add_batch/")
+        .method("POST")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_string(&request_body).unwrap()))
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body: Value = serde_json::from_slice(&body).unwrap();
+    assert!(body["error"]
+        .as_str()
+        .unwrap()
+        .contains("Batch size cannot exceed 10000 values."));
+}
+
+#[tokio::test]
+async fn test_rejects_eleventh_symbol() {
+    let state = SharedState::new(Store::new());
+    let app = app_router(state);
+
+    // 1. Add 10 unique symbols successfully.
+    for i in 1..=10 {
+        let symbol = format!("SYM-{}", i);
+        let request_body = json!({ "symbol": symbol, "values": [100.0] });
+        let request = Request::builder()
+            .uri("/add_batch/")
+            .method("POST")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&request_body).unwrap()))
+            .unwrap();
+
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    // 2. Try to add an 11th symbol. This should fail.
+    let eleventh_symbol = "SYM-11";
+    let request_body_11 = json!({ "symbol": eleventh_symbol, "values": [100.0] });
+    let request_11 = Request::builder()
+        .uri("/add_batch/")
+        .method("POST")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_string(&request_body_11).unwrap()))
+        .unwrap();
+
+    let response_11 = app.clone().oneshot(request_11).await.unwrap();
+    assert_eq!(response_11.status(), StatusCode::BAD_REQUEST);
+
+    // Verify the error message
+    let body = to_bytes(response_11.into_body(), usize::MAX).await.unwrap();
+    let body: Value = serde_json::from_slice(&body).unwrap();
+    assert!(body["error"]
+        .as_str()
+        .unwrap()
+        .contains("Maximum number of unique symbols (10) reached."));
+
+    // 3. Verify we can still add data to an existing symbol.
+    let existing_symbol = "SYM-1";
+    let request_body_existing = json!({ "symbol": existing_symbol, "values": [200.0] });
+    let request_existing = Request::builder()
+        .uri("/add_batch/")
+        .method("POST")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_string(&request_body_existing).unwrap(),
+        ))
+        .unwrap();
+
+    let response_existing = app.clone().oneshot(request_existing).await.unwrap();
+    assert_eq!(response_existing.status(), StatusCode::OK);
+}
+
 // This test is ignored by default because it is resource-intensive.
 // To run it, use: cargo test --release -- --ignored
 #[tokio::test]
@@ -174,7 +255,8 @@ async fn test_large_data_and_variable_exponent() {
     let app = app_router(state);
     let symbol = "BIG-DATA";
     let total_points = 100_000_000_u64;
-    let batch_size = 1_000_000_u64;
+
+    let batch_size = 10_000_u64;
 
     for i in 0..(total_points / batch_size) {
         let start = i * batch_size + 1;

@@ -1,5 +1,5 @@
 use axum::{
-    extract::{DefaultBodyLimit, Query, State},
+    extract::{Query, State},
     http::StatusCode,
     response::{IntoResponse, Json, Response},
     routing::{get, post},
@@ -76,11 +76,9 @@ impl From<SymbolStats> for StatsResponse {
 }
 
 pub fn app_router(state: SharedState) -> Router {
-    let add_batch_route = post(add_batch_handler).layer(DefaultBodyLimit::max(15_000_000));
-
     Router::new()
         .route("/health", get(health_check_handler))
-        .route("/add_batch/", add_batch_route)
+        .route("/add_batch/", post(add_batch_handler))
         .route("/stats/", get(get_stats_handler))
         .with_state(state)
 }
