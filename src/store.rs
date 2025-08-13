@@ -5,8 +5,6 @@ use dashmap::DashMap;
 const STARTING_CAPACITY: usize = 1_000_000;
 // The maximum number of unique symbols we can track.
 const MAX_SYMBOLS: usize = 10;
-// The maximum size of a batch we can accept in a single request.
-const MAX_BATCH_SIZE: usize = 10000;
 
 /// The main store for all symbol data.
 pub struct Store {
@@ -39,25 +37,6 @@ impl Store {
     /// Adds a batch of values for a given symbol.
     /// This now contains the core update logic.
     pub fn add_batch(&self, symbol: &str, batch_values: &[f64]) -> Result<(), AppError> {
-        if batch_values.is_empty() {
-            return Err(AppError::BadRequest(
-                "Cannot add an empty batch of values".to_string(),
-            ));
-        }
-
-        if batch_values.len() > MAX_BATCH_SIZE {
-            return Err(AppError::BadRequest(format!(
-                "Batch size cannot exceed {} values.",
-                MAX_BATCH_SIZE
-            )));
-        }
-
-        if batch_values.iter().any(|&v| v < 0.0) {
-            return Err(AppError::BadRequest(
-                "Negative trading prices are not allowed".to_string(),
-            ));
-        }
-
         // If the symbol doesn't exist yet and we are at capacity, reject the request.
         if !self.symbols.contains_key(symbol) && self.symbols.len() >= MAX_SYMBOLS {
             return Err(AppError::BadRequest(format!(
@@ -112,9 +91,12 @@ impl Store {
         }
 
         let last_value = data.values[total_points - 1];
-        let avg = stats_node.sum / stats_node.count as f64;
-        let variance =
-            ((stats_node.sum_of_squares / stats_node.count as f64) - avg.powi(2)).max(0.0);
+        let avg = stats_node.mean;
+        let variance = if stats_node.count > 0 {
+            stats_node.m2 / stats_node.count as f64
+        } else {
+            0.0
+        };
 
         Ok(SymbolStats {
             min: stats_node.min,

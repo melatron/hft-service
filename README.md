@@ -32,8 +32,10 @@ This data structure is optimal for this use case, as it can calculate all requir
 ### Concurrency Model: DashMap
 To handle a high volume of concurrent requests, the service uses **`DashMap`** as its central data store. Unlike a standard `HashMap` protected by a single global lock, `DashMap` provides fine-grained, sharded locking. This allows requests for *different* symbols to be processed in parallel, dramatically increasing throughput.
 
-### Numeric Type: `f64`
-This service deliberately uses the native `f64` type over a fixed-precision library like `rust_decimal`. In HFT, **raw computational speed is the highest priority**, and hardware-accelerated `f64` operations are orders of magnitude faster. This is a conscious trade-off where a massive performance gain is prioritized for this latency-sensitive application.
+### Numerical Stability: Welford's Algorithm
+Standard variance calculation using the `E[X²] - (E[X])²` formula can suffer from **catastrophic cancellation**—a significant loss of precision when subtracting two large, nearly-equal numbers.
+
+To guarantee high precision even with millions of data points, this service implements **Welford's online algorithm**. This is a numerically stable, single-pass method that computes variance by tracking a running `mean` and the sum of squared differences from that mean (`M2`). This approach avoids catastrophic cancellation entirely, ensuring the statistical results are always accurate.
 
 ---
 

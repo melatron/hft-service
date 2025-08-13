@@ -20,6 +20,9 @@ use store::{Store, SymbolStats};
 // The central, shared application state.
 pub type SharedState = Arc<Store>;
 
+// The maximum size of a batch we can accept in a single request.
+const MAX_BATCH_SIZE: usize = 10000;
+
 #[derive(Debug, Error)]
 pub enum AppError {
     #[error("Symbol not found: {0}")]
@@ -94,6 +97,25 @@ async fn add_batch_handler(
     State(state): State<SharedState>,
     Json(payload): Json<AddBatchRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    if payload.values.is_empty() {
+        return Err(AppError::BadRequest(
+            "Cannot add an empty batch of values".to_string(),
+        ));
+    }
+
+    if payload.values.len() > MAX_BATCH_SIZE {
+        return Err(AppError::BadRequest(format!(
+            "Batch size cannot exceed {} values.",
+            MAX_BATCH_SIZE
+        )));
+    }
+
+    if payload.values.iter().any(|&v| v < 0.0) {
+        return Err(AppError::BadRequest(
+            "Negative trading prices are not allowed".to_string(),
+        ));
+    }
+
     // The handler now just delegates to the store.
     state.add_batch(&payload.symbol, &payload.values)?;
 
