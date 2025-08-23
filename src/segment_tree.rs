@@ -83,6 +83,42 @@ impl SegmentTree {
         self.update_internal(index, value);
     }
 
+    pub fn batch_update(&mut self, start_index: usize, batch_values: &[f64], all_values: &[f64]) {
+        let required_capacity = start_index + batch_values.len();
+        if required_capacity > self.capacity {
+            // The `resize` function rebuilds the entire tree from `all_values`,
+            // which will already contain the new batch. After it's done, our
+            // work is complete.
+            self.resize(required_capacity, all_values);
+            return;
+        }
+
+        for (i, &value) in batch_values.iter().enumerate() {
+            let tree_index = start_index + i + self.capacity;
+            self.tree[tree_index] = Node {
+                min: value,
+                max: value,
+                count: 1,
+                mean: value,
+                m2: 0.0,
+            };
+        }
+
+        // 2. Propagate the updates upwards, one level at a time.
+        // We only need to update the parents of the changed nodes.
+        let mut start = start_index + self.capacity;
+        let mut end = start_index + batch_values.len() - 1 + self.capacity;
+
+        while start > 1 {
+            start /= 2;
+            end /= 2;
+            for i in start..=end {
+                self.tree[i] = self.tree[2 * i] + self.tree[2 * i + 1];
+                
+            }
+        }
+    }
+
     fn update_internal(&mut self, mut index: usize, value: f64) {
         index += self.capacity;
         // A single point has a mean equal to its value and a variance (m2) of 0.

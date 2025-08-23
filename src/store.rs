@@ -49,17 +49,15 @@ impl Store {
             self.symbols
                 .entry(symbol.to_string())
                 .or_insert_with(|| SymbolData {
-                    values: Vec::new(),
+                    values: Vec::with_capacity(STARTING_CAPACITY),
                     tree: SegmentTree::new(STARTING_CAPACITY),
                 });
 
         let SymbolData { values, tree } = &mut *symbol_data_guard;
 
-        for value in batch_values {
-            values.push(*value);
-            let new_index = values.len() - 1;
-            tree.update(new_index, *value, values);
-        }
+        let start_index = values.len();
+        values.extend_from_slice(batch_values);
+        tree.batch_update(start_index, batch_values, values);
 
         Ok(())
     }
